@@ -1,0 +1,241 @@
+// use prisma-8
+enum UserRole {
+  SUPER_ADMIN
+  ORG_ADMIN
+  MANAGER
+  EMPLOYEE
+  VIEWER
+}
+
+enum OrganizationStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum MembershipStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+}
+
+model Organization {
+  id                   Int                        @id @default(autoincrement())
+  name                 String
+  slug                 String                     @unique
+  status               OrganizationStatus         @default(ACTIVE)
+  memberships          Membership[]
+  tasks                Task[]
+  workflows            Workflow[]
+  approvalRequests     ApprovalRequest[]
+  suppliers            Supplier[]
+  purchaseRequisitions PurchaseRequisition[]
+  createdAt            TimestamptzString          @default(now())
+  updatedAt            temporal.updatedAtString()
+}
+
+model User {
+  id           Int                        @id @default(autoincrement())
+  email        String                     @unique
+  passwordHash String
+  firstName    String
+  lastName     String?
+  isActive     Boolean                    @default(true)
+  memberships  Membership[]
+  createdAt    TimestamptzString          @default(now())
+  updatedAt    temporal.updatedAtString()
+}
+
+model Membership {
+  id             Int                        @id @default(autoincrement())
+  user           User                       @relation(fields: [userId], references: [id])
+  userId         Int
+  organization   Organization               @relation(fields: [organizationId], references: [id])
+  organizationId Int
+  role           UserRole                   @default(EMPLOYEE)
+  status         MembershipStatus           @default(ACTIVE)
+  createdAt      TimestamptzString          @default(now())
+  updatedAt      temporal.updatedAtString()
+
+  @@unique([userId, organizationId])
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model Task {
+  id             Int                        @id @default(autoincrement())
+  organization   Organization               @relation(fields: [organizationId], references: [id])
+  organizationId Int
+  title          String
+  description    String?
+  status         TaskStatus                 @default(TODO)
+  priority       TaskPriority               @default(MEDIUM)
+  dueDate        TimestamptzString?
+  createdAt      TimestamptzString          @default(now())
+  updatedAt      temporal.updatedAtString()
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([priority])
+}
+
+enum WorkflowApproverRole {
+  SUPER_ADMIN
+  ORG_ADMIN
+  MANAGER
+}
+
+enum ApprovalRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum ApprovalActionType {
+  APPROVE
+  REJECT
+}
+
+model Workflow {
+  id             Int                        @id @default(autoincrement())
+  organization   Organization               @relation(fields: [organizationId], references: [id])
+  organizationId Int
+  name           String
+  description    String?
+  isActive       Boolean                    @default(true)
+  steps          WorkflowStep[]
+  requests       ApprovalRequest[]
+  createdAt      TimestamptzString          @default(now())
+  updatedAt      temporal.updatedAtString()
+
+  @@index([organizationId])
+}
+
+model WorkflowStep {
+  id           Int                        @id @default(autoincrement())
+  workflow     Workflow                   @relation(fields: [workflowId], references: [id])
+  workflowId   Int
+  stepOrder    Int
+  name         String
+  approverRole WorkflowApproverRole
+  createdAt    TimestamptzString          @default(now())
+  updatedAt    temporal.updatedAtString()
+
+  @@index([workflowId])
+  @@unique([workflowId, stepOrder])
+}
+
+model ApprovalRequest {
+  id                  Int                        @id @default(autoincrement())
+  organization        Organization               @relation(fields: [organizationId], references: [id])
+  organizationId      Int
+  workflow            Workflow                   @relation(fields: [workflowId], references: [id])
+  workflowId          Int
+  requestedBy         Int
+  currentStep         Int                        @default(1)
+  status              ApprovalRequestStatus      @default(PENDING)
+  title               String
+  description         String?
+  actions             ApprovalAction[]
+  purchaseRequisition PurchaseRequisition?
+  createdAt           TimestamptzString          @default(now())
+  updatedAt           temporal.updatedAtString()
+
+  @@index([organizationId])
+  @@index([workflowId])
+  @@index([requestedBy])
+  @@index([status])
+}
+
+model ApprovalAction {
+  id                Int                @id @default(autoincrement())
+  approvalRequest   ApprovalRequest    @relation(fields: [approvalRequestId], references: [id])
+  approvalRequestId Int
+  actedBy           Int
+  action            ApprovalActionType
+  comment           String?
+  createdAt         TimestamptzString  @default(now())
+
+  @@index([approvalRequestId])
+  @@index([actedBy])
+}
+
+enum SupplierStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Supplier {
+  id             Int                        @id @default(autoincrement())
+  organization   Organization               @relation(fields: [organizationId], references: [id])
+  organizationId Int
+  name           String
+  code           String
+  email          String?
+  phone          String?
+  gstin          String?
+  address        String?
+  status         SupplierStatus             @default(ACTIVE)
+  createdAt      TimestamptzString          @default(now())
+  updatedAt      temporal.updatedAtString()
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@index([status])
+}
+
+enum PurchaseRequisitionStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model PurchaseRequisition {
+  id                Int                        @id @default(autoincrement())
+  organization      Organization               @relation(fields: [organizationId], references: [id])
+  organizationId    Int
+  requestedBy       Int
+  requisitionNumber String
+  title             String
+  reason            String?
+  status            PurchaseRequisitionStatus  @default(DRAFT)
+  approvalRequest   ApprovalRequest?           @relation(fields: [approvalRequestId], references: [id])
+  approvalRequestId Int?                       @unique
+  items             PurchaseRequisitionItem[]
+  createdAt         TimestamptzString          @default(now())
+  updatedAt         temporal.updatedAtString()
+
+  @@unique([organizationId, requisitionNumber])
+  @@index([organizationId])
+  @@index([requestedBy])
+  @@index([status])
+}
+
+model PurchaseRequisitionItem {
+  id                    Int                        @id @default(autoincrement())
+  purchaseRequisition   PurchaseRequisition        @relation(fields: [purchaseRequisitionId], references: [id])
+  purchaseRequisitionId Int
+  itemName              String
+  description           String?
+  quantity              Float
+  unit                  String
+  estimatedUnitPrice    Float
+  createdAt             TimestamptzString          @default(now())
+  updatedAt             temporal.updatedAtString()
+
+  @@index([purchaseRequisitionId])
+}

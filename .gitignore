@@ -27,3 +27,6 @@ coverage/
 
 # Prisma
 *.db
+
+# Local backup files
+*.backup
