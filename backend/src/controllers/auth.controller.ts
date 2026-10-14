@@ -29,8 +29,22 @@ export async function register(req: Request, res: Response) {
     return res.status(201).json({
       success: true,
       message: "Registration successful",
-      data: result,
+      data: {
+        user: {
+          userId: result.user.id,
+          organizationId: result.organization.id,
+          role: result.role,
+          email: result.user.email,
+          firstName: result.user.firstName,
+          lastName: result.user.lastName,
+        },
+        organization: {
+          id: result.organization.id,
+          name: result.organization.name,
+        },
+      }
     })
+
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
@@ -70,8 +84,18 @@ export async function login(req: Request, res: Response) {
     return res.status(200).json({
       success: true,
       message: "Login successful",
-      data: result,
+      data: {
+        user: {
+          userId: result.user.id,
+          organizationId: result.organizationId,
+          role: result.role,
+          email: result.user.email,
+          firstName: result.user.firstName,
+          lastName: result.user.lastName,
+        },
+      }
     })
+
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({

@@ -42,8 +42,10 @@ describe("Authentication API integration", () => {
 
     expect(registration.status).toBe(201)
     expect(registration.body.success).toBe(true)
-    expect(registration.body.data.token).toEqual(expect.any(String))
-    expect(registration.body.data.role).toBe("ORG_ADMIN")
+    expect(registration.body.data.user.role).toBe("ORG_ADMIN")
+    expect(registration.body.data.user.email).toBe(testEmail)
+    expect(registration.body.data.token).toBeUndefined()
+    expect(registration.body.data.user.passwordHash).toBeUndefined()
 
     const registrationCookie = getSessionCookieHeader(registration.headers)
 
@@ -51,7 +53,7 @@ describe("Authentication API integration", () => {
     expect(registrationCookie).toContain("HttpOnly")
     expect(registrationCookie).toContain("SameSite=Lax")
 
-    createdUserId = registration.body.data.user.id
+    createdUserId = registration.body.data.user.userId
     createdOrganizationId = registration.body.data.organization.id
 
     const login = await request(app)
@@ -64,9 +66,11 @@ describe("Authentication API integration", () => {
 
     expect(login.status).toBe(200)
     expect(login.body.success).toBe(true)
-    expect(login.body.data.token).toEqual(expect.any(String))
     expect(login.body.data.user.email).toBe(testEmail)
-    expect(login.body.data.organizationId).toBe(createdOrganizationId)
+    expect(login.body.data.user.role).toBe("ORG_ADMIN")
+    expect(login.body.data.user.organizationId).toBe(createdOrganizationId)
+    expect(login.body.data.token).toBeUndefined()
+    expect(login.body.data.user.passwordHash).toBeUndefined()
 
     const loginCookie = getSessionCookieHeader(login.headers)
 

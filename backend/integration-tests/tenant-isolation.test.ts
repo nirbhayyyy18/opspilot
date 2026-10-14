@@ -18,8 +18,6 @@ const organizations = [
 
 const password = "TenantTestPassword123!";
 
-let tokenA: string | undefined;
-let tokenB: string | undefined;
 let organizationIdA: number | undefined;
 let organizationIdB: number | undefined;
 let taskIdA: number | undefined;
@@ -30,6 +28,7 @@ describe("Multi-tenant API isolation", () => {
     // Register two independent organizations.
     const registrationA = await request(app)
       .post("/api/auth/register")
+      .set("Origin", "http://localhost:3000")
       .send({
         organizationName: organizations[0].name,
         email: organizations[0].email,
@@ -39,11 +38,12 @@ describe("Multi-tenant API isolation", () => {
       });
 
     expect(registrationA.status).toBe(201);
-    tokenA = registrationA.body.data.token;
+    expect(registrationA.body.data.token).toBeUndefined();
     organizationIdA = registrationA.body.data.organization.id;
 
     const registrationB = await request(app)
       .post("/api/auth/register")
+      .set("Origin", "http://localhost:3000")
       .send({
         organizationName: organizations[1].name,
         email: organizations[1].email,
@@ -53,15 +53,31 @@ describe("Multi-tenant API isolation", () => {
       });
 
     expect(registrationB.status).toBe(201);
-    tokenB = registrationB.body.data.token;
+    expect(registrationB.body.data.token).toBeUndefined();
     organizationIdB = registrationB.body.data.organization.id;
+
+    // Extract session cookies from registration responses.
+    const cookieA = registrationA.headers["set-cookie"];
+    const cookieB = registrationB.headers["set-cookie"];
+
+    const sessionCookieA = (Array.isArray(cookieA) ? cookieA : [cookieA])
+      .find((cookie) => cookie?.startsWith("opspilot_session="))
+      ?.split(";")[0];
+
+    const sessionCookieB = (Array.isArray(cookieB) ? cookieB : [cookieB])
+      .find((cookie) => cookie?.startsWith("opspilot_session="))
+      ?.split(";")[0];
+
+    expect(sessionCookieA).toBeDefined();
+    expect(sessionCookieB).toBeDefined();
 
     expect(organizationIdA).not.toBe(organizationIdB);
 
-    // Create a task in each organization.
+    // Create a task in Tenant A.
     const taskA = await request(app)
       .post("/api/tasks")
-      .set("Authorization", `Bearer ${tokenA}`)
+      .set("Cookie", sessionCookieA!)
+      .set("Origin", "http://localhost:3000")
       .send({
         title: `Private task A ${uniqueId}`,
         priority: "HIGH",
@@ -71,9 +87,11 @@ describe("Multi-tenant API isolation", () => {
     taskIdA = taskA.body.data.id;
     expect(taskA.body.data.organizationId).toBe(organizationIdA);
 
+    // Create a task in Tenant B.
     const taskB = await request(app)
       .post("/api/tasks")
-      .set("Authorization", `Bearer ${tokenB}`)
+      .set("Cookie", sessionCookieB!)
+      .set("Origin", "http://localhost:3000")
       .send({
         title: `Private task B ${uniqueId}`,
         priority: "MEDIUM",
@@ -83,10 +101,10 @@ describe("Multi-tenant API isolation", () => {
     taskIdB = taskB.body.data.id;
     expect(taskB.body.data.organizationId).toBe(organizationIdB);
 
-    // Tenant A must only see its own task in the list.
+    // Tenant A must only see its own task.
     const listA = await request(app)
       .get("/api/tasks")
-      .set("Authorization", `Bearer ${tokenA}`);
+      .set("Cookie", sessionCookieA!);
 
     expect(listA.status).toBe(200);
     expect(
@@ -96,10 +114,10 @@ describe("Multi-tenant API isolation", () => {
       listA.body.data.some((task: { id: number }) => task.id === taskIdB),
     ).toBe(false);
 
-    // Tenant A must not fetch Tenant B's task by ID.
+    // Tenant A must not fetch Tenant B's task.
     const crossTenantRead = await request(app)
       .get(`/api/tasks/${taskIdB}`)
-      .set("Authorization", `Bearer ${tokenA}`);
+      .set("Cookie", sessionCookieA!);
 
     expect(crossTenantRead.status).toBe(404);
     expect(crossTenantRead.body.message).toBe("Task not found");
@@ -107,7 +125,8 @@ describe("Multi-tenant API isolation", () => {
     // Tenant A must not modify Tenant B's task.
     const crossTenantUpdate = await request(app)
       .patch(`/api/tasks/${taskIdB}`)
-      .set("Authorization", `Bearer ${tokenA}`)
+      .set("Cookie", sessionCookieA!)
+      .set("Origin", "http://localhost:3000")
       .send({
         title: "Unauthorized modification",
       });
@@ -115,10 +134,10 @@ describe("Multi-tenant API isolation", () => {
     expect(crossTenantUpdate.status).toBe(404);
     expect(crossTenantUpdate.body.message).toBe("Task not found");
 
-    // Confirm Tenant B's original task remains unchanged.
+    // Tenant B's original task must remain unchanged.
     const taskBAfterAttempt = await request(app)
       .get(`/api/tasks/${taskIdB}`)
-      .set("Authorization", `Bearer ${tokenB}`);
+      .set("Cookie", sessionCookieB!);
 
     expect(taskBAfterAttempt.status).toBe(200);
     expect(taskBAfterAttempt.body.data.title).toBe(
@@ -129,7 +148,7 @@ describe("Multi-tenant API isolation", () => {
 
 afterAll(async () => {
   try {
-    // Clean up test tasks before deleting their organizations.
+    // Delete tasks before deleting their organizations.
     if (organizationIdA !== undefined) {
       await db.orm.public.Task
         .where({ organizationId: organizationIdA })
@@ -142,7 +161,7 @@ afterAll(async () => {
         .delete();
     }
 
-    // Remove memberships, users, and organizations created by registration.
+    // Remove memberships, users without other memberships, and organizations.
     for (const organizationId of [
       organizationIdA,
       organizationIdB,
