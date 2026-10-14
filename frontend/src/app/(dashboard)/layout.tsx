@@ -1,5 +1,6 @@
 import { AppSidebar } from "@/components/layout/app-sidebar"
 import { AppTopbar } from "@/components/layout/app-topbar"
+import { ProtectedRoute } from "@/components/auth/protected-route"
 import {
   SidebarInset,
   SidebarProvider,
@@ -11,16 +12,18 @@ export default function DashboardLayout({
   children: React.ReactNode
 }>) {
   return (
-    <SidebarProvider>
-      <AppSidebar />
+    <ProtectedRoute>
+      <SidebarProvider>
+        <AppSidebar />
 
-      <SidebarInset>
-        <AppTopbar />
+        <SidebarInset>
+          <AppTopbar />
 
-        <main className="flex-1 p-4 md:p-6">
-          {children}
-        </main>
-      </SidebarInset>
-    </SidebarProvider>
+          <main className="flex-1 p-4 md:p-6">
+            {children}
+          </main>
+        </SidebarInset>
+      </SidebarProvider>
+    </ProtectedRoute>
   )
 }

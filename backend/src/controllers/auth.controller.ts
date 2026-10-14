@@ -1,6 +1,9 @@
 import { Request, Response } from "express"
+import { setAuthCookie, clearAuthCookie, AUTH_COOKIE_NAME } from "../utils/auth-cookie"
+import { verifyToken } from "../utils/jwt"
 import { z } from "zod"
 import { loginUser, registerUser } from "../services/auth.service"
+import { db } from "../prisma/db"
 
 const registerSchema = z.object({
   organizationName: z.string().min(2).max(100),
@@ -20,6 +23,8 @@ export async function register(req: Request, res: Response) {
     const input = registerSchema.parse(req.body)
 
     const result = await registerUser(input)
+
+    setAuthCookie(res, result.token)
 
     return res.status(201).json({
       success: true,
@@ -60,6 +65,8 @@ export async function login(req: Request, res: Response) {
 
     const result = await loginUser(input.email, input.password)
 
+    setAuthCookie(res, result.token)
+
     return res.status(200).json({
       success: true,
       message: "Login successful",
@@ -93,6 +100,102 @@ export async function login(req: Request, res: Response) {
     return res.status(500).json({
       success: false,
       message: "Internal server error",
+    })
+  }
+}
+
+export function logout(_req: Request, res: Response) {
+  clearAuthCookie(res)
+
+  return res.status(200).json({
+    success: true,
+    message: "Logged out successfully",
+  })
+}
+
+export async function getSession(req: Request, res: Response) {
+  const token = req.cookies?.[AUTH_COOKIE_NAME] as string | undefined
+
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      message: "Authentication required",
+    })
+  }
+
+  try {
+    const session = verifyToken(token)
+
+    const user = await db.orm.public.User
+      .where((user) => user.id.eq(session.userId))
+      .select("id", "email", "firstName", "lastName", "isActive")
+      .first()
+
+    if (!user || !user.isActive) {
+      clearAuthCookie(res)
+
+      return res.status(401).json({
+        success: false,
+        message: "User account not found or inactive",
+      })
+    }
+
+    const organization = await db.orm.public.Organization
+      .where((organization) => organization.id.eq(session.organizationId))
+      .select("id", "name")
+      .first()
+
+    if (!organization) {
+      clearAuthCookie(res)
+
+      return res.status(401).json({
+        success: false,
+        message: "Organization not found",
+      })
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Session active",
+      data: {
+        user: {
+          userId: user.id,
+          organizationId: organization.id,
+          role: session.role,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+        },
+        organization: {
+          id: organization.id,
+          name: organization.name,
+        },
+      },
+    })
+  } catch (error) {
+    if (error instanceof Error && error.name === "TokenExpiredError") {
+      clearAuthCookie(res)
+
+      return res.status(401).json({
+        success: false,
+        message: "Session expired",
+      })
+    }
+
+    if (error instanceof Error && error.name === "JsonWebTokenError") {
+      clearAuthCookie(res)
+
+      return res.status(401).json({
+        success: false,
+        message: "Invalid session",
+      })
+    }
+
+    console.error("Get session error:", error)
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to verify session",
     })
   }
 }

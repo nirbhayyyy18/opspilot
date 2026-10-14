@@ -1,6 +1,7 @@
 import cors from "cors"
 import express from "express"
 import helmet from "helmet"
+import { protectCookieRequests } from "./middleware/csrf.middleware"
 import authRoutes from "./routes/auth.routes"
 import userRoutes from "./routes/user.routes"
 import organizationRoutes from "./routes/organization.routes"
@@ -9,10 +10,14 @@ import workflowRoutes from "./routes/workflow.routes"
 import approvalRoutes from "./routes/approval.routes"
 import supplierRoutes from "./routes/supplier.routes"
 import purchaseRequisitionRoutes from "./routes/purchase-requisition.routes"
+import cookieParser from "cookie-parser"
+
 
 const app = express()
 
 app.use(helmet())
+
+app.use(cookieParser())
 
 app.use(
   cors({
@@ -23,6 +28,8 @@ app.use(
 
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
+
+app.use("/api",protectCookieRequests)
 
 app.use("/api/auth", authRoutes)
 

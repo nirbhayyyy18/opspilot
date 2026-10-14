@@ -10,12 +10,13 @@
     "typecheck": "tsc --noEmit",
     "contract:emit": "prisma contract emit",
     "test": "vitest run",
-    "test:watch":"vitest",
+    "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
     "@prisma/orm-postgres": "^8.0.0-rc.13",
     "bcryptjs": "^3.0.2",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^17.4.2",
     "express": "^5.1.0",
@@ -25,6 +26,7 @@
   },
   "devDependencies": {
     "@prisma/cli-engine": "^0.6.2",
+    "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.5",
     "@types/jsonwebtoken": "^9.0.10",

@@ -1,5 +1,6 @@
-import { NextFunction, Request, Response } from "express"
-import { verifyToken, JwtPayload } from "../utils/jwt"
+import type { NextFunction, Request, Response } from "express"
+import { verifyToken, type JwtPayload } from "../utils/jwt"
+import { AUTH_COOKIE_NAME } from "../utils/auth-cookie"
 
 export interface AuthenticatedRequest extends Request {
   user?: JwtPayload
@@ -13,23 +14,30 @@ export function authenticate(
   try {
     const authHeader = req.headers.authorization
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    // Preserve existing Bearer-token authentication.
+    const bearerToken =
+      authHeader?.startsWith("Bearer ")
+        ? authHeader.substring(7)
+        : undefined
+
+    // Fall back to the HttpOnly session cookie.
+    const cookieToken = req.cookies?.[AUTH_COOKIE_NAME] as
+      | string
+      | undefined
+
+    const token = bearerToken || cookieToken
+
+    if (!token) {
       return res.status(401).json({
         success: false,
         message: "Authentication required",
       })
     }
 
-    const token = authHeader.substring(7)
+    req.user = verifyToken(token)
 
-    const payload = verifyToken(token)
-
-    req.user = payload
-
-    next()
-  } catch (error) {
-    console.error("Authentication error:", error)
-
+    return next()
+  } catch {
     return res.status(401).json({
       success: false,
       message: "Invalid or expired token",
