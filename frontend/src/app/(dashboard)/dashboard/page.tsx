@@ -74,6 +74,34 @@ function getPriorityClasses(priority: TaskPriority): string {
   }
 }
 
+function isOpenTask(task: Task): boolean {
+  return task.status != "COMPLETED" && task.status !== "CANCELLED"
+}
+
+function getLocalDateKey(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2,"0")
+  const day = String(date.getDate()).padStart(2,"0")
+
+  return `${year}-${month}-${day}`
+}
+
+function getTaskDueDateKey(task: Task): string | null {
+  if (!task.dueDate) return null
+  
+  return getLocalDateKey(new Date(task.dueDate))
+}
+
+function isTaskOverdue(task: Task, todaykey: string): boolean {
+  const dueDateKey = getTaskDueDateKey(task)
+
+  return (
+    isOpenTask(task) &&
+    dueDateKey !== null &&
+    dueDateKey < todaykey
+  )
+}
+
 export default function DashboardPage() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
@@ -91,6 +119,13 @@ export default function DashboardPage() {
   const [priorityFilter, setPriorityFilter] = useState<
     "ALL" | TaskPriority
   >("ALL")
+
+  const [dueDateFilter, setDueDateFilter] = useState<
+    "ALL" | "OVERDUE" | "TODAY" | "UPCOMING" | "NO_DUE_DATE"
+  >("ALL")
+  const [taskSort, setTaskSort] = useState<
+    "NEWEST" | "OLDEST" | "DUE_DATE"
+  >("NEWEST")
 
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
@@ -214,18 +249,84 @@ export default function DashboardPage() {
     (task) => task.status === "CANCELLED",
   ).length
 
-  const filteredTasks = tasks.filter((task) => {
-    const matchesSearch = task.title
-      .toLowerCase()
-      .includes(searchQuery.trim().toLowerCase())
+  const todayKey = getLocalDateKey(new Date())
 
-    const matchesStatus =
-      statusFilter === "ALL" || task.status === statusFilter
+  const overdueTasks = tasks.filter((task) =>
+    isTaskOverdue(task, todayKey),
+  ).length
 
-    const matchesPriority =
-      priorityFilter === "ALL" || task.priority === priorityFilter
+  const dueTodayTasks = tasks.filter(
+    (task) =>
+      isOpenTask(task) &&
+      getTaskDueDateKey(task) === todayKey,
+  ).length
 
-    return matchesSearch && matchesStatus && matchesPriority
+  const upcomingTasks = tasks.filter((task) => {
+    const dueDateKey = getTaskDueDateKey(task)
+
+    return (
+      isOpenTask(task) &&
+      dueDateKey !== null &&
+      dueDateKey > todayKey
+    )
+  }).length
+
+  const filteredTasks = tasks
+    .filter((task) => {
+      const matchesSearch = task.title
+        .toLowerCase()
+        .includes(searchQuery.trim().toLowerCase())
+
+      const matchesStatus =
+        statusFilter === "ALL" || task.status === statusFilter
+
+      const matchesPriority =
+        priorityFilter === "ALL" || task.priority === priorityFilter
+
+      const dueDateKey = getTaskDueDateKey(task)
+
+      let matchesDueDate = true
+
+      switch (dueDateFilter) {
+        case "OVERDUE":
+          matchesDueDate = isTaskOverdue(task, todayKey)
+          break
+        case "TODAY":
+          matchesDueDate = isOpenTask(task) && dueDateKey === todayKey
+          break
+        case "UPCOMING":
+          matchesDueDate = isOpenTask(task) && dueDateKey !== null && dueDateKey > todayKey
+          break
+        case "NO_DUE_DATE":
+          matchesDueDate = dueDateKey === null
+          break
+      }
+
+      return (
+        matchesSearch &&
+        matchesStatus &&
+        matchesPriority &&
+        matchesDueDate
+      )
+  })
+  .sort((a, b) => {
+    if (taskSort === "DUE_DATE") {
+      const aDate = getTaskDueDateKey(a)
+      const bDate = getTaskDueDateKey(b)
+
+      if (aDate === null && bDate === null) return 0
+      if (aDate === null) return 1
+      if (bDate === null) return -1
+
+      return aDate.localeCompare(bDate)
+    }
+
+    const aTime = new Date(a.createdAt).getTime()
+    const bTime = new Date(b.createdAt).getTime()
+
+    return taskSort === "NEWEST"
+      ? bTime - aTime
+      : aTime - bTime
   })
 
   const stats = [
@@ -247,6 +348,24 @@ export default function DashboardPage() {
       description: "Successfully completed",
       icon: CheckCircle2,
     },
+    {
+      title: "Overdue Tasks",
+      value: overdueTasks,
+      description: "Open tasks past their deadline",
+      icon: AlertTriangle
+    },
+    {
+      title: "Due Today",
+      value: dueTodayTasks,
+      description: "Open Tasks due today",
+      icon: Activity
+    },
+    {
+      title: "Upcoming Tasks",
+      value: upcomingTasks,
+      description: "Open tasks due after today",
+      icon: Clock3
+    }, 
     {
       title: "Total Tasks",
       value: tasks.length,
@@ -536,7 +655,7 @@ export default function DashboardPage() {
       )}
 
       {/* Live Task Statistics */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {stats.map((stat) => {
           const Icon = stat.icon
 
@@ -627,6 +746,43 @@ export default function DashboardPage() {
                 <option value="HIGH">High Priority</option>
                 <option value="URGENT">Urgent Priority</option>
               </select>
+
+              <select
+                aria-label="Filter tasks by due date"
+                value={dueDateFilter}
+                onChange={(event) =>
+                  setDueDateFilter(
+                    event.target.value as
+                      | "ALL"
+                      | "OVERDUE"
+                      | "TODAY"
+                      | "UPCOMING"
+                      | "NO_DUE_DATE",
+                  )
+                }
+                className="h-10 rounded-md border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <option value="ALL">All Deadlines</option>
+                <option value="OVERDUE">Overdue</option>
+                <option value="TODAY">Due Today</option>
+                <option value="UPCOMING">Upcoming</option>
+                <option value="NO_DUE_DATE">No Due Date</option>
+              </select>
+
+              <select
+                aria-label="Sort tasks"
+                value={taskSort}
+                onChange={(event) =>
+                  setTaskSort(
+                    event.target.value as "NEWEST" | "OLDEST" | "DUE_DATE",
+                  )
+                }
+                className="h-10 rounded-md border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <option value="NEWEST">Newest First</option>
+                <option value="OLDEST">Oldest First</option>
+                <option value="DUE_DATE">Earliest Deadline</option>
+              </select>
             </div>
 
             {loading ? (
@@ -663,7 +819,7 @@ export default function DashboardPage() {
                   No matching tasks found
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Try a different title, status, or priority filter.
+                  Try a different title, status, priority, or deadline filter.
                 </p>
               </div>
             ) : (
@@ -683,10 +839,27 @@ export default function DashboardPage() {
                       </p>
 
                       {task.dueDate && (
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Due: {new Date(task.dueDate).toLocaleDateString()}
-                        </p>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <p className="text-xs text-muted-foreground">
+                            Due: {new Date(task.dueDate).toLocaleDateString()}
+                          </p>
+
+                          {isTaskOverdue(task, todayKey) && (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-600">
+                              <AlertTriangle className="size-3" />
+                              Overdue
+                            </span>
+                          )}
+
+                          {isOpenTask(task) &&
+                            getTaskDueDateKey(task) === todayKey && (
+                              <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600">
+                                Due Today
+                              </span>
+                            )}
+                        </div>
                       )}
+
                     </div>
 
                     <div className="flex shrink-0 flex-wrap items-center gap-2">
