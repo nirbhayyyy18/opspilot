@@ -1,3 +1,4 @@
+
 import { apiRequest } from "@/lib/api"
 
 export type TaskStatus =
@@ -31,8 +32,28 @@ export interface CreateTaskInput {
   dueDate?: string
 }
 
-export async function getTasks(): Promise<Task[]> {
-  const response = await apiRequest<Task[]>("/tasks")
+export interface TaskFilters {
+  status?: TaskStatus
+  priority?: TaskPriority
+}
+
+export async function getTasks(
+  filters?: TaskFilters,
+): Promise<Task[]> {
+  const params = new URLSearchParams()
+
+  if (filters?.status) {
+    params.set("status", filters.status)
+  }
+
+  if (filters?.priority) {
+    params.set("priority", filters.priority)
+  }
+
+  const query = params.toString()
+  const endpoint = query ? `/tasks?${query}` : "/tasks"
+
+  const response = await apiRequest<Task[]>(endpoint)
   return response.data
 }
 
@@ -60,6 +81,21 @@ export async function updateTaskStatus(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ status }),
+  })
+
+  return response.data
+}
+
+export async function updateTaskPriority(
+  taskId: number,
+  priority: TaskPriority,
+): Promise<Task> {
+  const response = await apiRequest<Task>(`/tasks/${taskId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ priority }),
   })
 
   return response.data

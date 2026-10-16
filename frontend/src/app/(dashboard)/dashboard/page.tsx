@@ -1,3 +1,4 @@
+
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
@@ -29,15 +30,13 @@ import {
   createTask,
   getTasks,
   updateTaskStatus,
+  updateTaskPriority,
   type Task,
   type TaskPriority,
   type TaskStatus,
 } from "@/lib/tasks/task-api"
 
-const priorities: {
-  value: TaskPriority
-  label: string
-}[] = [
+const priorities: { value: TaskPriority; label: string }[] = [
   { value: "LOW", label: "Low" },
   { value: "MEDIUM", label: "Medium" },
   { value: "HIGH", label: "High" },
@@ -62,6 +61,19 @@ function getErrorMessage(err: unknown): string {
     : "Something went wrong. Please try again."
 }
 
+function getPriorityClasses(priority: TaskPriority): string {
+  switch (priority) {
+    case "URGENT":
+      return "border-red-500/30 bg-red-500/10 text-red-600"
+    case "HIGH":
+      return "border-orange-500/30 bg-orange-500/10 text-orange-600"
+    case "MEDIUM":
+      return "border-blue-500/30 bg-blue-500/10 text-blue-600"
+    case "LOW":
+      return "border-green-500/30 bg-green-500/10 text-green-600"
+  }
+}
+
 export default function DashboardPage() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
@@ -76,6 +88,9 @@ export default function DashboardPage() {
 
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<"ALL" | TaskStatus>("ALL")
+  const [priorityFilter, setPriorityFilter] = useState<
+    "ALL" | TaskPriority
+  >("ALL")
 
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
@@ -207,7 +222,10 @@ export default function DashboardPage() {
     const matchesStatus =
       statusFilter === "ALL" || task.status === statusFilter
 
-    return matchesSearch && matchesStatus
+    const matchesPriority =
+      priorityFilter === "ALL" || task.priority === priorityFilter
+
+    return matchesSearch && matchesStatus && matchesPriority
   })
 
   const stats = [
@@ -256,17 +274,34 @@ export default function DashboardPage() {
     }
   }
 
+  const handlePriorityChange = async (
+    taskId: number,
+    nextPriority: TaskPriority,
+  ) => {
+    setUpdatingTaskId(taskId)
+    setStatusError(null)
+    setSuccessMessage(null)
+
+    try {
+      await updateTaskPriority(taskId, nextPriority)
+      await loadTasks()
+      setSuccessMessage("Task priority updated successfully.")
+    } catch (err) {
+      setStatusError(getErrorMessage(err))
+    } finally {
+      setUpdatingTaskId(null)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Dashboard Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-sm text-muted-foreground">Overview</p>
-
           <h1 className="text-2xl font-semibold tracking-tight">
             Operations Dashboard
           </h1>
-
           <p className="mt-1 text-sm text-muted-foreground">
             Monitor your organization&apos;s operations and activity.
           </p>
@@ -322,15 +357,9 @@ export default function DashboardPage() {
           </CardHeader>
 
           <CardContent>
-            <form
-              onSubmit={handleCreateTask}
-              className="space-y-4"
-            >
+            <form onSubmit={handleCreateTask} className="space-y-4">
               <div className="space-y-2">
-                <label
-                  htmlFor="task-title"
-                  className="text-sm font-medium"
-                >
+                <label htmlFor="task-title" className="text-sm font-medium">
                   Task Title <span className="text-destructive">*</span>
                 </label>
 
@@ -406,7 +435,8 @@ export default function DashboardPage() {
                     htmlFor="task-due-date"
                     className="text-sm font-medium"
                   >
-                    Due Date <span className="text-muted-foreground">(optional)</span>
+                    Due Date{" "}
+                    <span className="text-muted-foreground">(optional)</span>
                   </label>
 
                   <input
@@ -458,6 +488,7 @@ export default function DashboardPage() {
         </Card>
       )}
 
+      {/* Success Message */}
       {successMessage && (
         <div
           role="status"
@@ -475,6 +506,7 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* Task Update Error */}
       {statusError && (
         <div
           role="alert"
@@ -553,9 +585,9 @@ export default function DashboardPage() {
           </CardHeader>
 
           <CardContent>
-            {/* Search and Status Filter */}
-            <div className="mb-4 flex flex-col gap-3 sm:flex-row">
-              <div className="relative flex-1">
+            {/* Search, Status Filter, and Priority Filter */}
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+              <div className="relative min-w-0 flex-1">
                 <input
                   type="search"
                   placeholder="Search tasks by title..."
@@ -579,6 +611,21 @@ export default function DashboardPage() {
                 <option value="IN_PROGRESS">In Progress</option>
                 <option value="COMPLETED">Completed</option>
                 <option value="CANCELLED">Cancelled</option>
+              </select>
+
+              <select
+                aria-label="Filter tasks by priority"
+                value={priorityFilter}
+                onChange={(event) =>
+                  setPriorityFilter(event.target.value as "ALL" | TaskPriority)
+                }
+                className="h-10 rounded-md border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <option value="ALL">All Priorities</option>
+                <option value="LOW">Low Priority</option>
+                <option value="MEDIUM">Medium Priority</option>
+                <option value="HIGH">High Priority</option>
+                <option value="URGENT">Urgent Priority</option>
               </select>
             </div>
 
@@ -616,7 +663,7 @@ export default function DashboardPage() {
                   No matching tasks found
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Try a different title or status filter.
+                  Try a different title, status, or priority filter.
                 </p>
               </div>
             ) : (
@@ -643,6 +690,7 @@ export default function DashboardPage() {
                     </div>
 
                     <div className="flex shrink-0 flex-wrap items-center gap-2">
+                      {/* Update Task Status */}
                       <div className="relative">
                         <select
                           aria-label={`Update status for ${task.title}`}
@@ -669,9 +717,25 @@ export default function DashboardPage() {
                         )}
                       </div>
 
-                      <span className="rounded-md border px-2 py-1 text-xs">
-                        {task.priority}
-                      </span>
+                      {/* Update Task Priority */}
+                      <select
+                        aria-label={`Update priority for ${task.title}`}
+                        value={task.priority}
+                        disabled={updatingTaskId === task.id}
+                        onChange={(event) =>
+                          void handlePriorityChange(
+                            task.id,
+                            event.target.value as TaskPriority,
+                          )
+                        }
+                        className={`h-9 rounded-md border px-2 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-60 ${getPriorityClasses(task.priority)}`}
+                      >
+                        {priorities.map((item) => (
+                          <option key={item.value} value={item.value}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                 ))}
@@ -680,6 +744,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
+        {/* Task Summary */}
         <Card>
           <CardHeader>
             <CardTitle>Task Summary</CardTitle>
