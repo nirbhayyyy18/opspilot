@@ -1,3 +1,6 @@
+"use client"
+
+import { useCallback, useEffect, useState } from "react"
 import {
   Activity,
   AlertTriangle,
@@ -6,10 +9,12 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Clock3,
+  Loader2,
   Package,
   Plus,
   ShoppingCart,
   Users,
+  X,
 } from "lucide-react"
 
 import {
@@ -18,92 +23,207 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { ApiError } from "@/lib/api"
+import {
+  createTask,
+  getTasks,
+  type Task,
+  type TaskPriority,
+} from "@/lib/tasks/task-api"
 
-const stats = [
-  {
-    title: "Open Tasks",
-    value: "32",
-    change: "+12%",
-    description: "vs. last week",
-    icon: ClipboardCheck,
-  },
-  {
-    title: "Pending Approvals",
-    value: "17",
-    change: "-8%",
-    description: "vs. last week",
-    icon: Clock3,
-  },
-  {
-    title: "Low Stock Items",
-    value: "8",
-    change: "+3",
-    description: "need attention",
-    icon: Package,
-  },
-  {
-    title: "Active Operations",
-    value: "24",
-    change: "+6%",
-    description: "across 4 departments",
-    icon: Activity,
-  },
+const priorities: {
+  value: TaskPriority
+  label: string
+}[] = [
+  { value: "LOW", label: "Low" },
+  { value: "MEDIUM", label: "Medium" },
+  { value: "HIGH", label: "High" },
+  { value: "URGENT", label: "Urgent" },
 ]
 
-const activities = [
-  {
-    title: "Purchase Order #PO-1042 approved",
-    description: "Approved by Operations Manager",
-    time: "12 min ago",
-    icon: CheckCircle2,
-  },
-  {
-    title: "New inventory item received",
-    description: "Steel Coil · 2,500 KG",
-    time: "34 min ago",
-    icon: Package,
-  },
-  {
-    title: "Task assigned to Procurement",
-    description: "Supplier verification required",
-    time: "1 hr ago",
-    icon: ClipboardCheck,
-  },
-  {
-    title: "New supplier added",
-    description: "Shree Metals & Industries",
-    time: "2 hrs ago",
-    icon: Users,
-  },
-]
+function getErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 401) {
+      return "Your session has expired. Please sign in again."
+    }
 
-const alerts = [
-  {
-    item: "CR Coil 2.5mm",
-    stock: "120 KG",
-    minimum: "500 KG",
-  },
-  {
-    item: "MS Sheet 4mm",
-    stock: "85 PCS",
-    minimum: "200 PCS",
-  },
-  {
-    item: "GI Coil 1.6mm",
-    stock: "210 KG",
-    minimum: "400 KG",
-  },
-]
+    if (err.status === 403) {
+      return "You do not have permission to create tasks."
+    }
+
+    return err.message
+  }
+
+  return err instanceof Error
+    ? err.message
+    : "Something went wrong. Please try again."
+}
 
 export default function DashboardPage() {
+  const [tasks, setTasks] = useState<Task[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const [showCreateForm, setShowCreateForm] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+
+  const [title, setTitle] = useState("")
+  const [description, setDescription] = useState("")
+  const [priority, setPriority] = useState<TaskPriority>("MEDIUM")
+  const [dueDate, setDueDate] = useState("")
+
+  const loadTasks = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+
+    try {
+      const data = await getTasks()
+      setTasks(data)
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function fetchInitialTasks() {
+      try {
+        const data = await getTasks()
+
+        if (!cancelled) {
+          setTasks(data)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(getErrorMessage(err))
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      }
+    }
+
+    void fetchInitialTasks()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const handleCreateTask = async (
+    event: React.FormEvent<HTMLFormElement>,
+  ) => {
+    event.preventDefault()
+
+    const trimmedTitle = title.trim()
+    const trimmedDescription = description.trim()
+
+    if (!trimmedTitle) {
+      setCreateError("Please enter a task title.")
+      return
+    }
+
+    if (trimmedTitle.length > 200) {
+      setCreateError("Task title must be 200 characters or fewer.")
+      return
+    }
+
+    if (trimmedDescription.length > 2000) {
+      setCreateError("Description must be 2000 characters or fewer.")
+      return
+    }
+
+    setCreating(true)
+    setCreateError(null)
+    setSuccessMessage(null)
+
+    try {
+      await createTask({
+        title: trimmedTitle,
+        ...(trimmedDescription
+          ? { description: trimmedDescription }
+          : {}),
+        priority,
+        ...(dueDate
+          ? { dueDate: new Date(`${dueDate}T00:00:00`).toISOString() }
+          : {}),
+      })
+
+      setTitle("")
+      setDescription("")
+      setPriority("MEDIUM")
+      setDueDate("")
+      setShowCreateForm(false)
+      setSuccessMessage("Task created successfully.")
+
+      await loadTasks()
+    } catch (err) {
+      setCreateError(getErrorMessage(err))
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const openTasks = tasks.filter(
+    (task) =>
+      task.status === "TODO" || task.status === "IN_PROGRESS",
+  ).length
+
+  const inProgressTasks = tasks.filter(
+    (task) => task.status === "IN_PROGRESS",
+  ).length
+
+  const completedTasks = tasks.filter(
+    (task) => task.status === "COMPLETED",
+  ).length
+
+  const todoTasks = tasks.filter(
+    (task) => task.status === "TODO",
+  ).length
+
+  const cancelledTasks = tasks.filter(
+    (task) => task.status === "CANCELLED",
+  ).length
+
+  const stats = [
+    {
+      title: "Open Tasks",
+      value: openTasks,
+      description: "To do or in progress",
+      icon: ClipboardCheck,
+    },
+    {
+      title: "In Progress",
+      value: inProgressTasks,
+      description: "Currently being worked on",
+      icon: Clock3,
+    },
+    {
+      title: "Completed Tasks",
+      value: completedTasks,
+      description: "Successfully completed",
+      icon: CheckCircle2,
+    },
+    {
+      title: "Total Tasks",
+      value: tasks.length,
+      description: "Across your organization",
+      icon: Activity,
+    },
+  ]
+
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Dashboard Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <p className="text-sm text-muted-foreground">
-            Overview
-          </p>
+          <p className="text-sm text-muted-foreground">Overview</p>
 
           <h1 className="text-2xl font-semibold tracking-tight">
             Operations Dashboard
@@ -114,20 +234,229 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        <div className="flex gap-2">
-          <button className="inline-flex h-9 items-center gap-2 rounded-md border bg-background px-3 text-sm font-medium shadow-sm transition-colors hover:bg-muted">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled
+            title="Reports are not connected yet"
+            className="inline-flex h-9 items-center gap-2 rounded-md border bg-background px-3 text-sm font-medium opacity-60"
+          >
             <BarChart3 className="size-4" />
             View Reports
           </button>
 
-          <button className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90">
-            <Plus className="size-4" />
-            Create Task
+          <button
+            type="button"
+            onClick={() => {
+              setShowCreateForm((current) => !current)
+              setCreateError(null)
+            }}
+            className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+          >
+            {showCreateForm ? (
+              <X className="size-4" />
+            ) : (
+              <Plus className="size-4" />
+            )}
+            {showCreateForm ? "Close Form" : "Create Task"}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void loadTasks()}
+            disabled={loading}
+            className="inline-flex h-9 items-center gap-2 rounded-md border bg-background px-3 text-sm font-medium transition-colors hover:bg-muted disabled:opacity-50"
+          >
+            <Activity className="size-4" />
+            {loading ? "Loading..." : "Refresh Tasks"}
           </button>
         </div>
       </div>
 
-      {/* KPI Cards */}
+      {/* Create Task Form */}
+      {showCreateForm && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Create a New Task</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Add a task to your organization&apos;s operations.
+            </p>
+          </CardHeader>
+
+          <CardContent>
+            <form
+              onSubmit={handleCreateTask}
+              className="space-y-4"
+            >
+              <div className="space-y-2">
+                <label
+                  htmlFor="task-title"
+                  className="text-sm font-medium"
+                >
+                  Task Title <span className="text-destructive">*</span>
+                </label>
+
+                <input
+                  id="task-title"
+                  name="title"
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  maxLength={200}
+                  required
+                  autoFocus
+                  placeholder="e.g. Review pending purchase requests"
+                  className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+
+                <p className="text-right text-xs text-muted-foreground">
+                  {title.length}/200
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label
+                  htmlFor="task-description"
+                  className="text-sm font-medium"
+                >
+                  Description
+                </label>
+
+                <textarea
+                  id="task-description"
+                  name="description"
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  maxLength={2000}
+                  rows={3}
+                  placeholder="Add details about this task (optional)"
+                  className="w-full resize-y rounded-md border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+
+                <p className="text-right text-xs text-muted-foreground">
+                  {description.length}/2000
+                </p>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <label
+                    htmlFor="task-priority"
+                    className="text-sm font-medium"
+                  >
+                    Priority
+                  </label>
+
+                  <select
+                    id="task-priority"
+                    name="priority"
+                    value={priority}
+                    onChange={(event) =>
+                      setPriority(event.target.value as TaskPriority)
+                    }
+                    className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {priorities.map((item) => (
+                      <option key={item.value} value={item.value}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label
+                    htmlFor="task-due-date"
+                    className="text-sm font-medium"
+                  >
+                    Due Date <span className="text-muted-foreground">(optional)</span>
+                  </label>
+
+                  <input
+                    id="task-due-date"
+                    name="dueDate"
+                    type="date"
+                    value={dueDate}
+                    onChange={(event) => setDueDate(event.target.value)}
+                    className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                </div>
+              </div>
+
+              {createError && (
+                <div
+                  role="alert"
+                  className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive"
+                >
+                  {createError}
+                </div>
+              )}
+
+              <div className="flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={creating}
+                  onClick={() => {
+                    setShowCreateForm(false)
+                    setCreateError(null)
+                  }}
+                  className="h-10 rounded-md border px-4 text-sm font-medium hover:bg-muted disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={creating || !title.trim()}
+                  className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {creating && (
+                    <Loader2 className="size-4 animate-spin" />
+                  )}
+                  {creating ? "Creating..." : "Create Task"}
+                </button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      )}
+
+      {successMessage && (
+        <div
+          role="status"
+          className="flex items-center justify-between rounded-lg border border-green-600/30 bg-green-600/5 p-3 text-sm"
+        >
+          <span>{successMessage}</span>
+          <button
+            type="button"
+            aria-label="Dismiss success message"
+            onClick={() => setSuccessMessage(null)}
+            className="rounded p-1 hover:bg-muted"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Task Loading Error */}
+      {error && (
+        <div
+          role="alert"
+          className="flex flex-col gap-3 rounded-lg border border-destructive/40 p-4 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <p className="text-sm text-destructive">{error}</p>
+
+          <button
+            type="button"
+            onClick={() => void loadTasks()}
+            disabled={loading}
+            className="text-sm font-medium underline underline-offset-4 disabled:opacity-50"
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
+      {/* Live Task Statistics */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {stats.map((stat) => {
           const Icon = stat.icon
@@ -142,7 +471,7 @@ export default function DashboardPage() {
                     </p>
 
                     <p className="mt-2 text-3xl font-semibold tracking-tight">
-                      {stat.value}
+                      {loading ? "—" : stat.value.toLocaleString()}
                     </p>
                   </div>
 
@@ -151,32 +480,24 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                <div className="mt-4 flex items-center gap-2 text-xs">
-                  <span className="font-medium text-foreground">
-                    {stat.change}
-                  </span>
-
-                  <span className="text-muted-foreground">
-                    {stat.description}
-                  </span>
-                </div>
+                <p className="mt-4 text-xs text-muted-foreground">
+                  {stat.description}
+                </p>
               </CardContent>
             </Card>
           )
         })}
       </div>
 
-      {/* Main Grid */}
+      {/* Recent Tasks and Summary */}
       <div className="grid gap-6 xl:grid-cols-3">
-        {/* Operations Overview */}
         <Card className="xl:col-span-2">
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle>Operations Overview</CardTitle>
-
+                <CardTitle>Recent Tasks</CardTitle>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Current operational activity across your organization.
+                  Latest tasks from your organization.
                 </p>
               </div>
 
@@ -185,77 +506,109 @@ export default function DashboardPage() {
           </CardHeader>
 
           <CardContent>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="rounded-lg border p-4">
-                <div className="flex items-center gap-2">
-                  <ShoppingCart className="size-4 text-muted-foreground" />
-
-                  <span className="text-sm font-medium">
-                    Purchases
-                  </span>
-                </div>
-
-                <p className="mt-3 text-2xl font-semibold">
-                  18
-                </p>
-
-                <p className="mt-1 text-xs text-muted-foreground">
-                  6 awaiting approval
-                </p>
-              </div>
-
-              <div className="rounded-lg border p-4">
-                <div className="flex items-center gap-2">
-                  <Package className="size-4 text-muted-foreground" />
-
-                  <span className="text-sm font-medium">
-                    Inventory
-                  </span>
-                </div>
-
-                <p className="mt-3 text-2xl font-semibold">
-                  1,284
-                </p>
-
-                <p className="mt-1 text-xs text-muted-foreground">
-                  8 items below threshold
-                </p>
-              </div>
-
-              <div className="rounded-lg border p-4">
-                <div className="flex items-center gap-2">
-                  <ClipboardCheck className="size-4 text-muted-foreground" />
-
-                  <span className="text-sm font-medium">
-                    Approvals
-                  </span>
-                </div>
-
-                <p className="mt-3 text-2xl font-semibold">
-                  17
-                </p>
-
-                <p className="mt-1 text-xs text-muted-foreground">
-                  5 require your attention
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-6 rounded-lg border border-dashed p-8 text-center">
-              <BarChart3 className="mx-auto size-8 text-muted-foreground" />
-
-              <p className="mt-3 text-sm font-medium">
-                Operational analytics
+            {loading ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                Loading tasks...
               </p>
+            ) : error ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                Tasks could not be displayed.
+              </p>
+            ) : tasks.length === 0 ? (
+              <div className="rounded-lg border border-dashed p-8 text-center">
+                <ClipboardCheck className="mx-auto size-8 text-muted-foreground" />
+                <p className="mt-3 text-sm font-medium">No tasks yet</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Create your first task to see it here.
+                </p>
 
-              <p className="mt-1 text-xs text-muted-foreground">
-                Interactive charts will be connected to live business data.
+                {!showCreateForm && (
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateForm(true)}
+                    className="mt-4 inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                  >
+                    <Plus className="size-4" />
+                    Create your first task
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {tasks.slice(0, 5).map((task) => (
+                  <div
+                    key={task.id}
+                    className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">
+                        {task.title}
+                      </p>
+
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {task.description || "No description"}
+                      </p>
+
+                      {task.dueDate && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Due: {new Date(task.dueDate).toLocaleDateString()}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      <span className="rounded-md bg-muted px-2 py-1 text-xs">
+                        {task.status.replaceAll("_", " ")}
+                      </span>
+
+                      <span className="rounded-md border px-2 py-1 text-xs">
+                        {task.priority}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Task Summary</CardTitle>
+          </CardHeader>
+
+          <CardContent className="space-y-4">
+            {[
+              { label: "To Do", count: todoTasks },
+              { label: "In Progress", count: inProgressTasks },
+              { label: "Completed", count: completedTasks },
+              { label: "Cancelled", count: cancelledTasks },
+            ].map((item) => (
+              <div
+                key={item.label}
+                className="flex items-center justify-between"
+              >
+                <span className="text-sm text-muted-foreground">
+                  {item.label}
+                </span>
+
+                <span className="text-sm font-semibold">
+                  {loading ? "—" : item.count}
+                </span>
+              </div>
+            ))}
+
+            <div className="border-t pt-3">
+              <p className="text-xs text-muted-foreground">
+                Counts are calculated from tasks returned by your API.
               </p>
             </div>
           </CardContent>
         </Card>
+      </div>
 
-        {/* Quick Actions */}
+      {/* Quick Actions */}
+      <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle>Quick Actions</CardTitle>
@@ -263,29 +616,17 @@ export default function DashboardPage() {
 
           <CardContent className="space-y-2">
             {[
-              {
-                title: "Create Purchase Request",
-                icon: ShoppingCart,
-              },
-              {
-                title: "Create Task",
-                icon: ClipboardCheck,
-              },
-              {
-                title: "Add Inventory Item",
-                icon: Package,
-              },
-              {
-                title: "Add Supplier",
-                icon: Users,
-              },
+              { title: "Purchase Requests", icon: ShoppingCart },
+              { title: "Task Management", icon: ClipboardCheck },
+              { title: "Inventory", icon: Package },
+              { title: "Suppliers", icon: Users },
             ].map((action) => {
               const Icon = action.icon
 
               return (
-                <button
+                <div
                   key={action.title}
-                  className="flex w-full items-center justify-between rounded-lg border p-3 text-left transition-colors hover:bg-muted"
+                  className="flex items-center justify-between rounded-lg border p-3"
                 >
                   <div className="flex items-center gap-3">
                     <div className="flex size-8 items-center justify-center rounded-md bg-muted">
@@ -298,99 +639,29 @@ export default function DashboardPage() {
                   </div>
 
                   <ArrowRight className="size-4 text-muted-foreground" />
-                </button>
+                </div>
               )
             })}
           </CardContent>
         </Card>
-      </div>
 
-      {/* Bottom Grid */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Recent Activity */}
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>Recent Activity</CardTitle>
-
-              <button className="text-xs font-medium text-muted-foreground hover:text-foreground">
-                View all
-              </button>
-            </div>
+            <CardTitle>Operational Data</CardTitle>
           </CardHeader>
 
           <CardContent>
-            <div className="space-y-5">
-              {activities.map((activity) => {
-                const Icon = activity.icon
+            <div className="rounded-lg border border-dashed p-6 text-center">
+              <AlertTriangle className="mx-auto size-7 text-muted-foreground" />
 
-                return (
-                  <div
-                    key={activity.title}
-                    className="flex gap-3"
-                  >
-                    <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted">
-                      <Icon className="size-4 text-muted-foreground" />
-                    </div>
+              <p className="mt-3 text-sm font-medium">
+                More integrations pending
+              </p>
 
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium">
-                        {activity.title}
-                      </p>
-
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {activity.description}
-                      </p>
-                    </div>
-
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {activity.time}
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Inventory Alerts */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>Inventory Alerts</CardTitle>
-
-              <AlertTriangle className="size-5 text-muted-foreground" />
-            </div>
-          </CardHeader>
-
-          <CardContent>
-            <div className="space-y-3">
-              {alerts.map((alert) => (
-                <div
-                  key={alert.item}
-                  className="flex items-center justify-between rounded-lg border p-3"
-                >
-                  <div>
-                    <p className="text-sm font-medium">
-                      {alert.item}
-                    </p>
-
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Minimum: {alert.minimum}
-                    </p>
-                  </div>
-
-                  <div className="text-right">
-                    <p className="text-sm font-semibold">
-                      {alert.stock}
-                    </p>
-
-                    <p className="text-xs text-muted-foreground">
-                      Available
-                    </p>
-                  </div>
-                </div>
-              ))}
+              <p className="mt-1 text-xs text-muted-foreground">
+                Inventory, purchase approvals, and recent activity will be
+                connected after their APIs are verified.
+              </p>
             </div>
           </CardContent>
         </Card>
