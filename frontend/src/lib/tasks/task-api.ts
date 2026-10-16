@@ -49,3 +49,18 @@ export async function createTask(
 
   return response.data
 }
+
+export async function updateTaskStatus(
+  taskId: number,
+  status: TaskStatus,
+): Promise<Task> {
+  const response = await apiRequest<Task>(`/tasks/${taskId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ status }),
+  })
+
+  return response.data
+}

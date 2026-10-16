@@ -10,6 +10,7 @@ import {
   ClipboardCheck,
   Clock3,
   Loader2,
+  ChevronDown,
   Package,
   Plus,
   ShoppingCart,
@@ -27,8 +28,10 @@ import { ApiError } from "@/lib/api"
 import {
   createTask,
   getTasks,
+  updateTaskStatus,
   type Task,
   type TaskPriority,
+  type TaskStatus,
 } from "@/lib/tasks/task-api"
 
 const priorities: {
@@ -66,6 +69,8 @@ export default function DashboardPage() {
 
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [updatingTaskId, setUpdatingTaskId] = useState<number | null>(null)
+  const [statusError, setStatusError] = useState<string | null>(null)
   const [createError, setCreateError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
@@ -217,6 +222,25 @@ export default function DashboardPage() {
       icon: Activity,
     },
   ]
+
+  const handleStatusChange = async (
+    taskId: number,
+    status: TaskStatus,
+  ) => {
+    setUpdatingTaskId(taskId)
+    setStatusError(null)
+    setSuccessMessage(null)
+
+    try {
+      await updateTaskStatus(taskId, status)
+      await loadTasks()
+      setSuccessMessage("Task status updated succesfully.")
+    } catch (err) {
+      setStatusError(getErrorMessage(err))
+    } finally {
+      setUpdatingTaskId(null)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -437,6 +461,15 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {statusError && (
+        <div
+        role="alert"
+        className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive"
+        >
+          {statusError}
+        </div>
+      )}
+
       {/* Task Loading Error */}
       {error && (
         <div
@@ -556,15 +589,39 @@ export default function DashboardPage() {
                       )}
                     </div>
 
-                    <div className="flex shrink-0 flex-wrap gap-2">
-                      <span className="rounded-md bg-muted px-2 py-1 text-xs">
-                        {task.status.replaceAll("_", " ")}
-                      </span>
+
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                      <div className="relative">
+                        <select
+                          aria-label={`Update status for ${task.title}`}
+                          value={task.status}
+                          disabled={updatingTaskId === task.id}
+                          onChange={(event) =>
+                            void handleStatusChange(
+                              task.id,
+                              event.target.value as TaskStatus,
+                            )
+                          }
+                          className="h-9 appearance-none rounded-md border bg-background py-1 pl-3 pr-8 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-60"
+                        >
+                          <option value="TODO">To Do</option>
+                          <option value="IN_PROGRESS">In Progress</option>
+                          <option value="COMPLETED">Completed</option>
+                          <option value="CANCELLED">Cancelled</option>
+                        </select>
+
+                        {updatingTaskId === task.id ? (
+                          <Loader2 className="pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2 animate-spin" />
+                        ) : (
+                          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2" />
+                        )}
+                      </div>
 
                       <span className="rounded-md border px-2 py-1 text-xs">
                         {task.priority}
                       </span>
                     </div>
+
                   </div>
                 ))}
               </div>
