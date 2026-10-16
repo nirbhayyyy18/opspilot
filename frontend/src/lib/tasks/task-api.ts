@@ -32,6 +32,13 @@ export interface CreateTaskInput {
   dueDate?: string
 }
 
+export interface UpdateTaskInput {
+  title?: string
+  description?: string | null
+  priority?: TaskPriority
+  dueDate?: string | null
+}
+
 export interface TaskFilters {
   status?: TaskStatus
   priority?: TaskPriority
@@ -96,6 +103,21 @@ export async function updateTaskPriority(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ priority }),
+  })
+
+  return response.data
+}
+
+export async function updateTask(
+  taskId: number,
+  input: UpdateTaskInput,
+): Promise<Task> {
+  const response = await apiRequest<Task>(`/tasks/${taskId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input)
   })
 
   return response.data

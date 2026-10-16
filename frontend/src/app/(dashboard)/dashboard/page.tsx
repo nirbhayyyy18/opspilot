@@ -29,11 +29,13 @@ import { ApiError } from "@/lib/api"
 import {
   createTask,
   getTasks,
+  updateTask,
   updateTaskStatus,
   updateTaskPriority,
   type Task,
   type TaskPriority,
   type TaskStatus,
+  type UpdateTaskInput
 } from "@/lib/tasks/task-api"
 
 const priorities: { value: TaskPriority; label: string }[] = [
@@ -131,6 +133,15 @@ export default function DashboardPage() {
   const [description, setDescription] = useState("")
   const [priority, setPriority] = useState<TaskPriority>("MEDIUM")
   const [dueDate, setDueDate] = useState("")
+
+  const [editingTaskId, setEditingTaskId] = useState<number | null>(null)
+  const [savingEdit, setSavingEdit] = useState(false)
+
+  const [editTitle, setEditTitle] = useState("")
+  const [editDescription, setEditDescription] = useState("")
+  const [editPriority, setEditPriority] = useState<TaskPriority>("MEDIUM")
+  const [editDueDate, setEditDueDate] = useState("")
+  const [editError, setEditError] = useState<string | null>(null)
 
   const loadTasks = useCallback(async () => {
     setLoading(true)
@@ -409,6 +420,76 @@ export default function DashboardPage() {
       setStatusError(getErrorMessage(err))
     } finally {
       setUpdatingTaskId(null)
+    }
+  }
+
+  const handleEditTask = (task: Task) => {
+  setEditingTaskId(task.id)
+  setEditTitle(task.title)
+  setEditDescription(task.description ?? "")
+  setEditPriority(task.priority)
+  setEditDueDate(getTaskDueDateKey(task) ?? "")
+  setEditError(null)
+  setStatusError(null)
+  setSuccessMessage(null)
+    }
+
+  const handleCancelEdit = () => {
+    setEditingTaskId(null)
+    setEditTitle("")
+    setEditDescription("")
+    setEditPriority("MEDIUM")
+    setEditDueDate("")
+    setEditError(null)
+  }
+
+  const handleSaveEdit = async (
+    event: React.FormEvent<HTMLFormElement>,
+    taskId: number,
+  ) => {
+    event.preventDefault()
+
+    const trimmedTitle = editTitle.trim()
+    const trimmedDescription = editDescription.trim()
+
+    if (!trimmedTitle) {
+      setEditError("Please enter a task title.")
+      return
+    }
+
+    if (trimmedTitle.length > 200) {
+      setEditError("Task title must be 200 characters or fewer.")
+      return
+    }
+
+    if (trimmedDescription.length > 2000) {
+      setEditError("Description must be 2000 characters or fewer.")
+      return
+    }
+
+    setSavingEdit(true)
+    setEditError(null)
+    setSuccessMessage(null)
+    setStatusError(null)
+
+    const input: UpdateTaskInput = {
+      title: trimmedTitle,
+      description: trimmedDescription || null,
+      priority: editPriority,
+      dueDate: editDueDate
+        ? new Date(`${editDueDate}T00:00:00`).toISOString()
+        : null,
+    }
+
+    try {
+      await updateTask(taskId, input)
+      handleCancelEdit()
+      await loadTasks()
+      setSuccessMessage("Task updated successfully.")
+    } catch (err) {
+      setEditError(getErrorMessage(err))
+    } finally {
+      setSavingEdit(false)
     }
   }
 
@@ -860,6 +941,122 @@ export default function DashboardPage() {
                         </div>
                       )}
 
+                      {editingTaskId === task.id && (
+                        <form
+                          onSubmit={(event) => void handleSaveEdit(event, task.id)}
+                          className="mt-4 space-y-3 rounded-lg border bg-muted/30 p-4"
+                        >
+                          <h3 className="text-sm font-semibold">Edit Task</h3>
+
+                          <div className="space-y-1">
+                            <label
+                              htmlFor={`edit-title-${task.id}`}
+                              className="text-xs font-medium"
+                            >
+                              Task Title
+                            </label>
+
+                            <input
+                              id={`edit-title-${task.id}`}
+                              value={editTitle}
+                              onChange={(event) => setEditTitle(event.target.value)}
+                              maxLength={200}
+                              required
+                              className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <label
+                              htmlFor={`edit-description-${task.id}`}
+                              className="text-xs font-medium"
+                            >
+                              Description
+                            </label>
+
+                            <textarea
+                              id={`edit-description-${task.id}`}
+                              value={editDescription}
+                              onChange={(event) => setEditDescription(event.target.value)}
+                              maxLength={2000}
+                              rows={3}
+                              className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                            />
+                          </div>
+
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <div className="space-y-1">
+                              <label
+                                htmlFor={`edit-priority-${task.id}`}
+                                className="text-xs font-medium"
+                              >
+                                Priority
+                              </label>
+
+                              <select
+                                id={`edit-priority-${task.id}`}
+                                value={editPriority}
+                                onChange={(event) =>
+                                  setEditPriority(event.target.value as TaskPriority)
+                                }
+                                className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                              >
+                                {priorities.map((item) => (
+                                  <option key={item.value} value={item.value}>
+                                    {item.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div className="space-y-1">
+                              <label
+                                htmlFor={`edit-due-date-${task.id}`}
+                                className="text-xs font-medium"
+                              >
+                                Due Date
+                              </label>
+
+                              <input
+                                id={`edit-due-date-${task.id}`}
+                                type="date"
+                                value={editDueDate}
+                                onChange={(event) => setEditDueDate(event.target.value)}
+                                className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                              />
+                            </div>
+                          </div>
+
+                          {editError && (
+                            <p role="alert" className="text-sm text-destructive">
+                              {editError}
+                            </p>
+                          )}
+
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={handleCancelEdit}
+                              disabled={savingEdit}
+                              className="h-9 rounded-md border px-3 text-xs font-medium hover:bg-muted disabled:opacity-50"
+                            >
+                              Cancel
+                            </button>
+
+                            <button
+                              type="submit"
+                              disabled={savingEdit || !editTitle.trim()}
+                              className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                            >
+                              {savingEdit && (
+                                <Loader2 className="size-3.5 animate-spin" />
+                              )}
+                              {savingEdit ? "Saving..." : "Save Changes"}
+                            </button>
+                          </div>
+                        </form>
+                      )}
+
                     </div>
 
                     <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -909,6 +1106,15 @@ export default function DashboardPage() {
                           </option>
                         ))}
                       </select>
+
+                      <button
+                        type="button"
+                        onClick={() => handleEditTask(task)}
+                        disabled={updatingTaskId === task.id || savingEdit}
+                        className="h-9 rounded-md border px-3 text-xs font-medium hover:bg-muted disabled:opacity-50"
+                      >
+                        Edit
+                      </button>
                     </div>
                   </div>
                 ))}
