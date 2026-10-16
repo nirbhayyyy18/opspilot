@@ -74,6 +74,9 @@ export default function DashboardPage() {
   const [createError, setCreateError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
+  const [searchQuery, setSearchQuery] = useState("")
+  const [statusFilter, setStatusFilter] = useState<"ALL" | TaskStatus>("ALL")
+
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
   const [priority, setPriority] = useState<TaskPriority>("MEDIUM")
@@ -196,6 +199,17 @@ export default function DashboardPage() {
     (task) => task.status === "CANCELLED",
   ).length
 
+  const filteredTasks = tasks.filter((task) => {
+    const matchesSearch = task.title
+      .toLowerCase()
+      .includes(searchQuery.trim().toLowerCase())
+
+    const matchesStatus =
+      statusFilter === "ALL" || task.status === statusFilter
+
+    return matchesSearch && matchesStatus
+  })
+
   const stats = [
     {
       title: "Open Tasks",
@@ -234,7 +248,7 @@ export default function DashboardPage() {
     try {
       await updateTaskStatus(taskId, status)
       await loadTasks()
-      setSuccessMessage("Task status updated succesfully.")
+      setSuccessMessage("Task status updated successfully.")
     } catch (err) {
       setStatusError(getErrorMessage(err))
     } finally {
@@ -463,8 +477,8 @@ export default function DashboardPage() {
 
       {statusError && (
         <div
-        role="alert"
-        className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive"
+          role="alert"
+          className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive"
         >
           {statusError}
         </div>
@@ -539,6 +553,35 @@ export default function DashboardPage() {
           </CardHeader>
 
           <CardContent>
+            {/* Search and Status Filter */}
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row">
+              <div className="relative flex-1">
+                <input
+                  type="search"
+                  placeholder="Search tasks by title..."
+                  aria-label="Search tasks by title"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+              </div>
+
+              <select
+                aria-label="Filter tasks by status"
+                value={statusFilter}
+                onChange={(event) =>
+                  setStatusFilter(event.target.value as "ALL" | TaskStatus)
+                }
+                className="h-10 rounded-md border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <option value="ALL">All Statuses</option>
+                <option value="TODO">To Do</option>
+                <option value="IN_PROGRESS">In Progress</option>
+                <option value="COMPLETED">Completed</option>
+                <option value="CANCELLED">Cancelled</option>
+              </select>
+            </div>
+
             {loading ? (
               <p className="py-8 text-center text-sm text-muted-foreground">
                 Loading tasks...
@@ -566,9 +609,19 @@ export default function DashboardPage() {
                   </button>
                 )}
               </div>
+            ) : filteredTasks.length === 0 ? (
+              <div className="rounded-lg border border-dashed p-8 text-center">
+                <ClipboardCheck className="mx-auto size-8 text-muted-foreground" />
+                <p className="mt-3 text-sm font-medium">
+                  No matching tasks found
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Try a different title or status filter.
+                </p>
+              </div>
             ) : (
               <div className="space-y-3">
-                {tasks.slice(0, 5).map((task) => (
+                {filteredTasks.slice(0, 5).map((task) => (
                   <div
                     key={task.id}
                     className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between"
@@ -589,8 +642,7 @@ export default function DashboardPage() {
                       )}
                     </div>
 
-
-                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    <div className="flex shrink-0 flex-wrap items-center gap-2">
                       <div className="relative">
                         <select
                           aria-label={`Update status for ${task.title}`}
@@ -621,7 +673,6 @@ export default function DashboardPage() {
                         {task.priority}
                       </span>
                     </div>
-
                   </div>
                 ))}
               </div>
